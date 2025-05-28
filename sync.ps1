@@ -1,36 +1,26 @@
-###########################################################
-# PowerShell Script: SFTP Transfer with WinSCP .NET       #
-# Requirements: WinSCP .NET assembly (WinSCPnet.dll)       #
-# https://winscp.net/eng/docs/library                     #
-###########################################################
-
-# Load WinSCP .NET Assembly
+# Load WinSCP .NET assembly
 Add-Type -Path "C:\Path\To\WinSCPnet.dll"
 
-# ====== CONFIGURATION VARIABLES ======
-# --- SFTP Credentials and Connection Info ---
-$SftpHostA = "sftp.remote-location-a.com"
-$SftpUserA = "usernameA"
-$SftpPassA = "passwordA"
-$SshKeyFingerprintA = "ssh-rsa 2048 xx:xx:xx:xx..." # Move to secure store for production
+# ===== Configuration Variables =====
+# SFTP connection
+$SftpHost = "sftp.remote-site.com"
+$SftpUser = "sftpuser"
+$SftpPass = "sftppass"
+$SshKeyFingerprint = "ssh-rsa 2048 xx:xx:xx:xx:xx..."
 
-$SftpHostB = "sftp.remote-location-b.com"
-$SftpUserB = "usernameB"
-$SftpPassB = "passwordB"
-$SshKeyFingerprintB = "ssh-rsa 2048 yy:yy:yy:yy..." # Move to secure store for production
+# Remote paths
+$RemotePathA = "/user_upload"
+$RemotePathB = "/user_download"
 
-# --- Pathing Info ---
-$NetworkPathA     = "\\NetworkShareA\Uploads"
-$RemotePathA      = "/uploads"
+# Network share paths
+$NetworkLocationA = "\\network\share\upload"
+$NetworkLocationB = "\\network\share\download"
 
-$RemotePathB      = "/downloads"
-$NetworkPathB     = "\\NetworkShareB\Downloads"
+# Logging
+$logTime = Get-Date -Format "yyyyMMdd_HHmmss"
+$LogFilePath = "\\network\share\logs\SftpTransfer_$logTime.log"
 
-$ZipFilePath      = "$env:TEMP\upload.zip"
-$LogDirectory     = "\\NetworkShareLogs\SftpLogs"
-$LogFilePath      = Join-Path $LogDirectory ("sftp_transfer_log_" + (Get-Date -Format 'yyyyMMdd_HHmmss') + ".log")
-
-# --- SMTP Info for Summary Email ---
+# SMTP config
 $SmtpServer = "smtp.example.com"
 $SmtpPort = 587
 $SmtpUser = "smtpuser"
@@ -38,119 +28,119 @@ $SmtpPass = "smtppass"
 $EmailTo = "admin@example.com"
 $EmailFrom = "automation@sftp.com"
 
-# ====== ZIP SECTION (BEFORE UPLOAD TO REMOTE A) ======
-# Create or clear log file
-"Transfer Log - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n" | Out-File -FilePath $LogFilePath -Encoding UTF8
-
-# Log each file being added to zip
-Get-ChildItem -Path $NetworkPathA -File | ForEach-Object {
-    "Added to zip: $($_.FullName) at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File -FilePath $LogFilePath -Append -Encoding UTF8
+# ===== Logging Utility =====
+function Log {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$timestamp `t $Message" | Out-File -FilePath $LogFilePath -Append -Encoding UTF8
 }
 
-# Compress contents of Network Location A into a zip
-Compress-Archive -Path "$NetworkPathA\*" -DestinationPath $ZipFilePath -Force
+# ===== Function 1: Upload-ZipToSftp =====
+function Upload-ZipToSftp {
+    $zipFile = "$env:TEMP\upload_$logTime.zip"
+    Log "Zipping files from $NetworkLocationA..."
+    Compress-Archive -Path "$NetworkLocationA\*" -DestinationPath $zipFile -Force
 
-# ====== UPLOAD TO REMOTE LOCATION A ======
-# Create SFTP Session Options for Remote A
-$sessionOptionsA = New-Object WinSCP.SessionOptions -Property @{
-    Protocol = [WinSCP.Protocol]::Sftp
-    HostName = $SftpHostA
-    UserName = $SftpUserA
-    Password = $SftpPassA
-    SshHostKeyFingerprint = $SshKeyFingerprintA
-}
+    # Track filenames
+    Get-ChildItem -Path $NetworkLocationA -File | ForEach-Object {
+        Log "Prepared for upload: $($_.Name)"
+    }
 
-$sessionA = New-Object WinSCP.Session
-$uploadSuccess = $false
-try {
-    $sessionA.Open($sessionOptionsA)
+    $sessionOptions = New-Object WinSCP.SessionOptions -Property @{
+        Protocol = [WinSCP.Protocol]::Sftp
+        HostName = $SftpHost
+        UserName = $SftpUser
+        Password = $SftpPass
+        SshHostKeyFingerprint = $SshKeyFingerprint
+    }
 
-    # Upload the zip file to Remote A
-    $transferOptions = New-Object WinSCP.TransferOptions
-    $transferOptions.TransferMode = [WinSCP.TransferMode]::Binary
+    $session = New-Object WinSCP.Session
+    try {
+        $session.Open($sessionOptions)
+        $transferOptions = New-Object WinSCP.TransferOptions
+        $transferOptions.TransferMode = [WinSCP.TransferMode]::Binary
+        $result = $session.PutFiles($zipFile, "$RemotePathA/", $False, $transferOptions)
+        $result.Check()
+        Log "Uploaded $($result.Transfers.Count) file(s) to $RemotePathA"
 
-    $transferResult = $sessionA.PutFiles($ZipFilePath, $RemotePathA + "/", $False, $transferOptions)
-    $transferResult.Check()
-    $uploadCount = $transferResult.Transfers.Count
-    $uploadSuccess = $true
-}
-catch {
-    $uploadError = $_.Exception.Message
-}
-finally {
-    $sessionA.Dispose()
-}
-
-# Remove source files after upload to prevent reprocessing
-if ($uploadSuccess) {
-    Get-ChildItem -Path $NetworkPathA -File | Remove-Item -Force
-    "Source files deleted after upload." | Out-File -FilePath $LogFilePath -Append -Encoding UTF8
-}
-
-# ====== DOWNLOAD FROM REMOTE LOCATION B ======
-# Create SFTP Session Options for Remote B
-$sessionOptionsB = New-Object WinSCP.SessionOptions -Property @{
-    Protocol = [WinSCP.Protocol]::Sftp
-    HostName = $SftpHostB
-    UserName = $SftpUserB
-    Password = $SftpPassB
-    SshHostKeyFingerprint = $SshKeyFingerprintB
-}
-
-$sessionB = New-Object WinSCP.Session
-$downloadSuccess = $false
-try {
-    $sessionB.Open($sessionOptionsB)
-
-    # List files in remote directory to find latest zip
-    $directoryInfo = $sessionB.ListDirectory($RemotePathB)
-    $zipFile = $directoryInfo.Files | Where-Object { !$_.IsDirectory -and $_.Name -like "*.zip" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-
-    if ($zipFile -ne $null) {
-        $remoteZipFile = $RemotePathB + "/" + $zipFile.Name
-        $localZipFile = "$env:TEMP\download.zip"
-
-        $transferResult = $sessionB.GetFiles($remoteZipFile, $localZipFile, $False)
-        $transferResult.Check()
-        $downloadCount = $transferResult.Transfers.Count
-        $downloadSuccess = $true
-
-        # Log the file that was downloaded
-        "Downloaded file: $remoteZipFile at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File -FilePath $LogFilePath -Append -Encoding UTF8
-    } else {
-        throw "No zip file found in remote location B."
+        # Delete local source files after upload
+        Get-ChildItem -Path $NetworkLocationA -File | Remove-Item -Force
+        Log "Source files at $NetworkLocationA deleted."
+        return @{ Success = $true; Count = $result.Transfers.Count }
+    }
+    catch {
+        Log "Upload failed: $($_.Exception.Message)"
+        return @{ Success = $false; Error = $_.Exception.Message }
+    }
+    finally {
+        $session.Dispose()
     }
 }
-catch {
-    $downloadError = $_.Exception.Message
-}
-finally {
-    $sessionB.Dispose()
+
+# ===== Function 2: Download-ZipFromSftp =====
+function Download-ZipFromSftp {
+    $zipFile = "$env:TEMP\download_$logTime.zip"
+
+    $sessionOptions = New-Object WinSCP.SessionOptions -Property @{
+        Protocol = [WinSCP.Protocol]::Sftp
+        HostName = $SftpHost
+        UserName = $SftpUser
+        Password = $SftpPass
+        SshHostKeyFingerprint = $SshKeyFingerprint
+    }
+
+    $session = New-Object WinSCP.Session
+    try {
+        $session.Open($sessionOptions)
+        $remoteFiles = $session.ListDirectory($RemotePathB).Files | Where-Object { !$_.IsDirectory -and $_.Name -like "*.zip" }
+        $latestFile = $remoteFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $latestFile) {
+            throw "No zip file found at $RemotePathB"
+        }
+
+        $remotePath = "$RemotePathB/$($latestFile.Name)"
+        $result = $session.GetFiles($remotePath, $zipFile, $False)
+        $result.Check()
+        Log "Downloaded $($result.Transfers.Count) file(s) from $RemotePathB"
+
+        Expand-Archive -Path $zipFile -DestinationPath $NetworkLocationB -Force
+        Log "Extracted contents to $NetworkLocationB"
+
+        # Delete the zip file from remote after download
+        $session.RemoveFiles($remotePath)
+        Log "Deleted $($latestFile.Name) from $RemotePathB"
+
+        return @{ Success = $true; Count = $result.Transfers.Count }
+    }
+    catch {
+        Log "Download failed: $($_.Exception.Message)"
+        return @{ Success = $false; Error = $_.Exception.Message }
+    }
+    finally {
+        $session.Dispose()
+    }
 }
 
-# ====== UNZIP SECTION (AFTER DOWNLOAD FROM REMOTE B) ======
-# Extract downloaded zip to Network Location B
-if (Test-Path $localZipFile) {
-    Expand-Archive -Path $localZipFile -DestinationPath $NetworkPathB -Force
-}
+# ===== MAIN EXECUTION =====
+$uploadResult = Upload-ZipToSftp
+$downloadResult = Download-ZipFromSftp
 
-# ====== EMAIL SUMMARY ======
-$summaryBody = "SFTP Transfer Summary - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n`n"
-$summaryBody += "Upload to $SftpHostA: " + ($uploadSuccess ? "Success ($uploadCount files)" : "Failed - $uploadError") + "`n"
-$summaryBody += "Download from $SftpHostB: " + ($downloadSuccess ? "Success ($downloadCount files)" : "Failed - $downloadError") + "`n"
+# ===== Summary Email =====
+$summary = @()
+$summary += "SFTP Transfer Summary - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n"
+$summary += "Upload to $RemotePathA: " + ($uploadResult.Success ? "Success ($($uploadResult.Count) files)" : "Failed - $($uploadResult.Error)") + "`n"
+$summary += "Download from $RemotePathB: " + ($downloadResult.Success ? "Success ($($downloadResult.Count) files)" : "Failed - $($downloadResult.Error)") + "`n"
 
 $mailParams = @{
-    SmtpServer = $SmtpServer
-    Port = $SmtpPort
-    From = $EmailFrom
-    To = $EmailTo
-    Subject = "SFTP Transfer Summary - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-    Body = $summaryBody
+    SmtpServer  = $SmtpServer
+    Port        = $SmtpPort
+    From        = $EmailFrom
+    To          = $EmailTo
+    Subject     = "SFTP Transfer Summary - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    Body        = ($summary -join "`n")
     Attachments = $LogFilePath
-    Credential = New-Object System.Management.Automation.PSCredential($SmtpUser, (ConvertTo-SecureString $SmtpPass -AsPlainText -Force))
-    UseSsl = $true
+    Credential  = New-Object System.Management.Automation.PSCredential($SmtpUser, (ConvertTo-SecureString $SmtpPass -AsPlainText -Force))
+    UseSsl      = $true
 }
-
 Send-MailMessage @mailParams
-
-Write-Host "SFTP Transfer and File Processing Completed. Summary email sent."
+Write-Host "SFTP process complete. Summary email sent."
