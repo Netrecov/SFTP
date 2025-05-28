@@ -1,5 +1,5 @@
 # Load WinSCP .NET assembly
-Add-Type -Path "C:\Path\To\WinSCPnet.dll"
+Add-Type -Path "C:\Program Files (x86)\WinSCP\WinSCPnet.dll"
 
 # ===== Configuration Variables =====
 # SFTP connection
