@@ -5,7 +5,7 @@
 ###########################################################
 
 # Load WinSCP .NET Assembly
-Add-Type -Path "C:\Program Files (x86)\WinSCP\WinSCPnet.dll"
+Add-Type -Path "C:\Path\To\WinSCPnet.dll"
 
 # ====== CONFIGURATION VARIABLES ======
 # --- SFTP Credentials and Connection Info ---
