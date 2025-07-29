@@ -9,8 +9,8 @@ $SftpRemotePath = "/source/data"
 
 # Azure SMB Credentials and Path
 $SmbPath = "\\azurestorage.file.core.windows.net\myshare"
-$SmbUsername = "AZURE\azure-service-user"
-$SmbPassword = "azure-smb-password"
+$SmbUsername = "DOMAIN\service-user"
+$SmbPassword = "service-user-password"
 
 # Path to WinSCP .NET assembly
 $WinScpDllPath = "C:\Tools\WinSCP\WinSCPnet.dll"
