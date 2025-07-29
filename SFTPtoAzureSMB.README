@@ -1,0 +1,8 @@
+Prerequisites
+WinSCP .NET assembly (WinSCPnet.dll) must be available on the system.
+Access to Azure SMB mapped or UNC path must be reachable internally (e.g., \\storageaccount.file.core.windows.net\share).
+Service account credentials (not interactive logins).
+
+Notes:
+SshHostKeyPolicy = "GiveUpSecurityAndAcceptAny" is unsafe for production — replace with actual fingerprint validation for internal environments if needed.
+If your environment uses Kerberos or domain-based access to Azure Files, you may skip SMB credential input and use the context of the running service account.
